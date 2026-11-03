@@ -122,11 +122,17 @@ heg::Status process(const heg::AudioBlock& input, heg::AudioBlock& output) {
     for (uint32_t c = 0; c < 2; ++c) std::copy_n(input.data[c], input.frames, in[c].data());
     float* inputPtrs[2] = {in[0].data(), in[1].data()};
     float* outputPtrs[2] = {out[0].data(), out[1].data()};
+#ifdef HEG_TRACE_AUDIO
     std::fprintf(stderr, "[HEG] process: processReplacing begin, frames=%u, inputs=%d, outputs=%d\n", input.frames, effect->numInputs, effect->numOutputs); std::fflush(stderr);
+#endif
     effect->processReplacing(effect, inputPtrs, outputPtrs, static_cast<int32_t>(input.frames));
+#ifdef HEG_TRACE_AUDIO
     std::fprintf(stderr, "[HEG] process: processReplacing returned\n"); std::fflush(stderr);
+#endif
     for (uint32_t c = 0; c < 2; ++c) std::copy_n(out[c].data(), input.frames, output.data[c]);
+#ifdef HEG_TRACE_AUDIO
     std::fprintf(stderr, "[HEG] process: output copied\n"); std::fflush(stderr);
+#endif
     return heg::Status::Ok;
 }
 }
