@@ -3,6 +3,7 @@
 #include "bridge_client.h"
 
 #include <atomic>
+#include <cstdint>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -79,16 +80,22 @@ public:
     // Ein MIDI-Ereignis zusammen mit einem Audioblock.
     bool submitMidi(const AudioBlock& input,
                     const MidiMessage& midi) {
-        return submitInternal(input, &midi);
+        return submitInternal(input, &midi, 0);
     }
 
     bool submit(const AudioBlock& input) {
-        return submitInternal(input, nullptr);
+        return submitInternal(input, nullptr, 0);
+    }
+
+    bool submitTagged(const AudioBlock& input,
+                      uint64_t sequence) {
+        return submitInternal(input, nullptr, sequence);
     }
 
 private:
     bool submitInternal(const AudioBlock& input,
-                        const MidiMessage* midi) {
+                        const MidiMessage* midi,
+                        uint64_t sequence) {
         if (!ready() ||
             input.frames == 0 ||
             input.frames > kMaxFrames ||
@@ -103,6 +110,7 @@ private:
             return false;
 
         input_ = input;
+        inputSequence_ = sequence;
         midiPending_ = midi != nullptr;
         if (midi)
             midi_ = *midi;
@@ -118,6 +126,12 @@ private:
 public:
     // Nicht blockierender Versuch, fertiges Audio abzuholen.
     bool receive(AudioBlock& output) {
+        uint64_t sequence = 0;
+        return receiveTagged(output, sequence);
+    }
+
+    bool receiveTagged(AudioBlock& output,
+                       uint64_t& sequence) {
         std::unique_lock<std::mutex> lock(
             mutex_, std::try_to_lock
         );
@@ -126,6 +140,7 @@ public:
             return false;
 
         output = output_;
+        sequence = outputSequence_;
         outputPending_ = false;
         inFlight_ = false;
         return true;
@@ -182,6 +197,7 @@ private:
 
         while (!stopping_.load()) {
             AudioBlock input{};
+            uint64_t sequence = 0;
             MidiMessage midi{};
             bool sendMidi = false;
 
@@ -196,6 +212,7 @@ private:
                     break;
 
                 input = input_;
+                sequence = inputSequence_;
                 midi = midi_;
                 sendMidi = midiPending_;
                 midiPending_ = false;
@@ -220,6 +237,7 @@ private:
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 output_ = output;
+                outputSequence_ = sequence;
                 outputPending_ = true;
             }
         }
@@ -238,6 +256,8 @@ private:
 
     AudioBlock input_{};
     AudioBlock output_{};
+    uint64_t inputSequence_ = 0;
+    uint64_t outputSequence_ = 0;
 
     MidiMessage midi_{};
     bool midiPending_ = false;

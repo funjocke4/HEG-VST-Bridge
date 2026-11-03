@@ -21,25 +21,34 @@ public:
         output.frames = input.frames;
         output.channels = 2;
 
-        // Zuerst das vorherige Ergebnis abholen.
+        // Erwarteter Block: genau ein Aufruf vorher.
+        const uint64_t expected =
+            nextSequence_ > 1 ? nextSequence_ - 1 : 0;
+
         AudioBlock completed{};
-        bool received = bridge.receive(completed);
+        uint64_t receivedSequence = 0;
 
-        if (received &&
+        bool received =
+            bridge.receiveTagged(completed, receivedSequence);
+
+        bool valid =
+            received &&
+            expected != 0 &&
+            receivedSequence == expected &&
             completed.frames == input.frames &&
-            completed.channels == 2) {
+            completed.channels == 2;
+
+        if (valid)
             output = completed;
-        } else {
-            received = false;
-            // output bleibt Stille.
-        }
 
-        // Neuen Block uebergeben, ohne auf das
-        // Ergebnis des Workers zu warten.
-        bridge.submit(input);
-
-        return received;
+        // Jeder Aufruf bekommt eine neue Kennnummer.
+        // Bei belegter Mailbox wird der Block ausgelassen.
+        bridge.submitTagged(input, nextSequence_++);
+        return valid;
     }
+
+private:
+    uint64_t nextSequence_ = 1;
 };
 
 } // namespace heg
