@@ -58,6 +58,22 @@ public:
         return bridge_.receive(output);
     }
 
+    // Notabschaltung bei blockiertem Worker.
+    // Nicht aus dem Echtzeit-Audiothread aufrufen.
+    void abort() {
+        if (!started_)
+            return;
+
+        // Zuerst den separaten Prozess beenden.
+        // Dadurch werden dessen Pipe-Handles geschlossen.
+        process_.stop();
+
+        // Anschliessend den Kommunikationsthread beenden.
+        bridge_.stop();
+
+        started_ = false;
+    }
+
     void stop() {
         if (!started_)
             return;
