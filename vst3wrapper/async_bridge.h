@@ -61,8 +61,19 @@ public:
         return ready_.load();
     }
 
-    // Nicht blockierender Versuch aus dem Audiothread.
+    // Ein MIDI-Ereignis zusammen mit einem Audioblock.
+    bool submitMidi(const AudioBlock& input,
+                    const MidiMessage& midi) {
+        return submitInternal(input, &midi);
+    }
+
     bool submit(const AudioBlock& input) {
+        return submitInternal(input, nullptr);
+    }
+
+private:
+    bool submitInternal(const AudioBlock& input,
+                        const MidiMessage* midi) {
         if (!ready() ||
             input.frames == 0 ||
             input.frames > kMaxFrames ||
@@ -73,11 +84,15 @@ public:
             mutex_, std::try_to_lock
         );
 
-        if (!lock.owns_lock() || inputPending_)
+        if (!lock.owns_lock() || inFlight_)
             return false;
 
         input_ = input;
+        midiPending_ = midi != nullptr;
+        if (midi)
+            midi_ = *midi;
         inputPending_ = true;
+        inFlight_ = true;
 
         lock.unlock();
         condition_.notify_one();
@@ -85,6 +100,7 @@ public:
         return true;
     }
 
+public:
     // Nicht blockierender Versuch, fertiges Audio abzuholen.
     bool receive(AudioBlock& output) {
         std::unique_lock<std::mutex> lock(
@@ -96,6 +112,7 @@ public:
 
         output = output_;
         outputPending_ = false;
+        inFlight_ = false;
         return true;
     }
 
@@ -120,6 +137,8 @@ private:
 
         while (!stopping_.load()) {
             AudioBlock input{};
+            MidiMessage midi{};
+            bool sendMidi = false;
 
             {
                 std::unique_lock<std::mutex> lock(mutex_);
@@ -132,10 +151,19 @@ private:
                     break;
 
                 input = input_;
+                midi = midi_;
+                sendMidi = midiPending_;
+                midiPending_ = false;
                 inputPending_ = false;
             }
 
             AudioBlock output{};
+
+            if (sendMidi &&
+                !client.midi(midi.status, midi.data1, midi.data2)) {
+                ready_.store(false);
+                break;
+            }
 
             if (!client.process(input, output)) {
                 ready_.store(false);
@@ -163,8 +191,12 @@ private:
     AudioBlock input_{};
     AudioBlock output_{};
 
+    MidiMessage midi_{};
+    bool midiPending_ = false;
+
     bool inputPending_ = false;
     bool outputPending_ = false;
+    bool inFlight_ = false;
 };
 
 }
