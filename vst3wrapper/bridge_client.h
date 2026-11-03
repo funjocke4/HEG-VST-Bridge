@@ -22,7 +22,7 @@ public:
             kPipeName,
             GENERIC_READ | GENERIC_WRITE,
             0, nullptr, OPEN_EXISTING,
-            0, nullptr
+            FILE_FLAG_OVERLAPPED, nullptr
         );
 
         if (!connected()) return false;
@@ -96,13 +96,70 @@ public:
 private:
     HANDLE pipe_ = INVALID_HANDLE_VALUE;
 
+    static constexpr DWORD kIoTimeoutMs = 3000;
+
+    bool ioOnce(bool writing, void* buffer,
+                DWORD size, DWORD& transferred) {
+        transferred = 0;
+
+        HANDLE event = CreateEventW(
+            nullptr, TRUE, FALSE, nullptr
+        );
+
+        if (!event)
+            return false;
+
+        OVERLAPPED ov{};
+        ov.hEvent = event;
+
+        BOOL ok = writing
+            ? WriteFile(pipe_, buffer, size, nullptr, &ov)
+            : ReadFile(pipe_, buffer, size, nullptr, &ov);
+
+        bool success = false;
+
+        if (ok) {
+            success = GetOverlappedResult(
+                pipe_, &ov, &transferred, FALSE
+            ) != FALSE;
+        } else if (GetLastError() == ERROR_IO_PENDING) {
+            DWORD waitResult = WaitForSingleObject(
+                event, kIoTimeoutMs
+            );
+
+            if (waitResult == WAIT_OBJECT_0) {
+                success = GetOverlappedResult(
+                    pipe_, &ov, &transferred, FALSE
+                ) != FALSE;
+            } else {
+                // Ausstehenden Zugriff abbrechen.
+                CancelIoEx(pipe_, &ov);
+
+                // Abschluss abwarten, bevor ov zerstoert wird.
+                DWORD ignored = 0;
+                GetOverlappedResult(
+                    pipe_, &ov, &ignored, TRUE
+                );
+            }
+        }
+
+        CloseHandle(event);
+
+        if (!success)
+            disconnect();
+
+        return success && transferred > 0;
+    }
+
     bool writeAll(const void* data, uint32_t size) {
-        const auto* p = static_cast<const uint8_t*>(data);
+        auto* p = const_cast<uint8_t*>(
+            static_cast<const uint8_t*>(data)
+        );
 
         while (size > 0) {
             DWORD written = 0;
-            if (!WriteFile(pipe_, p, size, &written, nullptr)
-                || written == 0)
+
+            if (!ioOnce(true, p, size, written))
                 return false;
 
             p += written;
@@ -116,8 +173,8 @@ private:
 
         while (size > 0) {
             DWORD received = 0;
-            if (!ReadFile(pipe_, p, size, &received, nullptr)
-                || received == 0)
+
+            if (!ioOnce(false, p, size, received))
                 return false;
 
             p += received;

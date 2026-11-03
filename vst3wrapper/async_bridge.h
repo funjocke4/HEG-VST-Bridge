@@ -11,6 +11,14 @@
 
 namespace heg {
 
+enum class BridgeError {
+    None,
+    ConnectionFailed,
+    LoadFailed,
+    ConfigureFailed,
+    ProcessingFailed
+};
+
 class AsyncBridge {
 public:
     AsyncBridge() = default;
@@ -33,6 +41,7 @@ public:
 
         stopping_.store(false);
         ready_.store(false);
+        error_.store(BridgeError::None);
 
         worker_ = std::thread(
             [this, pluginPath, sampleRate, blockSize]() {
@@ -59,6 +68,10 @@ public:
 
     bool ready() const {
         return ready_.load();
+    }
+
+    BridgeError error() const {
+        return error_.load();
     }
 
     // Ein MIDI-Ereignis zusammen mit einem Audioblock.
@@ -122,16 +135,26 @@ private:
                     uint32_t blockSize) {
         BridgeClient client;
 
-        if (!client.connect())
+        if (!client.connect()) {
+            error_.store(BridgeError::ConnectionFailed);
+            return;
+        }
+
+        if (stopping_.load())
             return;
 
-        if (stopping_.load() ||
-            !client.loadPlugin(pluginPath))
+        if (!client.loadPlugin(pluginPath)) {
+            error_.store(BridgeError::LoadFailed);
+            return;
+        }
+
+        if (stopping_.load())
             return;
 
-        if (stopping_.load() ||
-            !client.configure(sampleRate, blockSize))
+        if (!client.configure(sampleRate, blockSize)) {
+            error_.store(BridgeError::ConfigureFailed);
             return;
+        }
 
         ready_.store(true);
 
@@ -161,11 +184,13 @@ private:
 
             if (sendMidi &&
                 !client.midi(midi.status, midi.data1, midi.data2)) {
+                error_.store(BridgeError::ProcessingFailed);
                 ready_.store(false);
                 break;
             }
 
             if (!client.process(input, output)) {
+                error_.store(BridgeError::ProcessingFailed);
                 ready_.store(false);
                 break;
             }
@@ -187,6 +212,7 @@ private:
 
     std::atomic<bool> stopping_{false};
     std::atomic<bool> ready_{false};
+    std::atomic<BridgeError> error_{BridgeError::None};
 
     AudioBlock input_{};
     AudioBlock output_{};
