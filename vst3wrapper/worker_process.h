@@ -14,11 +14,24 @@ public:
     WorkerProcess(const WorkerProcess&) = delete;
     WorkerProcess& operator=(const WorkerProcess&) = delete;
 
-    bool start(const std::wstring& executable) {
+    bool start(const std::wstring& executable,
+               const std::wstring& pipeId = L"") {
         if (process_ || executable.empty())
             return false;
 
         std::wstring command = L"\"" + executable + L"\"";
+
+        if (!pipeId.empty()) {
+            if (pipeId.size() > 32)
+                return false;
+
+            for (wchar_t c : pipeId) {
+                if (c < L'0' || c > L'9')
+                    return false;
+            }
+
+            command += L" --pipe-id " + pipeId;
+        }
         std::vector<wchar_t> args(
             command.begin(), command.end()
         );

@@ -4,6 +4,7 @@
 #include "async_bridge.h"
 
 #include <string>
+#include <atomic>
 #include <cstdint>
 
 namespace heg {
@@ -23,10 +24,20 @@ public:
         if (started_)
             return false;
 
-        if (!process_.start(workerExe))
+        static std::atomic<uint32_t> nextId{1};
+
+        const std::wstring pipeId =
+            std::to_wstring(GetCurrentProcessId()) +
+            std::to_wstring(nextId.fetch_add(1));
+
+        const std::wstring pipeName =
+            std::wstring(kPipeName) + L"_" + pipeId;
+
+        if (!process_.start(workerExe, pipeId))
             return false;
 
-        if (!bridge_.start(pluginDll, sampleRate, blockSize)) {
+        if (!bridge_.start(
+                pluginDll, sampleRate, blockSize, pipeName)) {
             process_.stop();
             return false;
         }

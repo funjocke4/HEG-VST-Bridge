@@ -131,9 +131,33 @@ heg::Status process(const heg::AudioBlock& input, heg::AudioBlock& output) {
 }
 }
 
-int wmain() {
-    std::wcout << L"HEG Worker32: " << heg::kPipeName << L"\n"; std::wcout.flush();
-    HANDLE pipe = CreateNamedPipeW(heg::kPipeName, PIPE_ACCESS_DUPLEX,
+int wmain(int argc, wchar_t** argv) {
+    std::wstring pipeName = heg::kPipeName;
+
+    // Optional: --pipe-id <nummer>
+    // Ohne Argument bleibt der bisherige Pipe-Name erhalten.
+    if (argc != 1) {
+        if (argc != 3 || std::wstring(argv[1]) != L"--pipe-id") {
+            std::wcerr << L"Usage: HEGWorker32.exe [--pipe-id NUMBER]\\n";
+            return 1;
+        }
+
+        const std::wstring id = argv[2];
+
+        if (id.empty() || id.size() > 32 ||
+            !std::all_of(id.begin(), id.end(),
+                [](wchar_t c) { return c >= L'0' && c <= L'9'; })) {
+            std::wcerr << L"Invalid pipe ID\\n";
+            return 1;
+        }
+
+        pipeName += L"_" + id;
+    }
+
+    std::wcout << L"HEG Worker32: " << pipeName << L"\\n";
+    std::wcout.flush();
+
+    HANDLE pipe = CreateNamedPipeW(pipeName.c_str(), PIPE_ACCESS_DUPLEX,
         PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1,
         65536, 65536, 0, nullptr);
     if (pipe == INVALID_HANDLE_VALUE) { std::wcerr << L"CreateNamedPipe failed: " << GetLastError() << L"\n"; return 2; }

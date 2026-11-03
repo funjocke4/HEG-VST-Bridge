@@ -33,7 +33,8 @@ public:
 
     bool start(const std::wstring& pluginPath,
                double sampleRate,
-               uint32_t blockSize) {
+               uint32_t blockSize,
+               std::wstring pipeName = kPipeName) {
         if (worker_.joinable() ||
             pluginPath.empty() ||
             blockSize == 0 ||
@@ -45,8 +46,8 @@ public:
         error_.store(BridgeError::None);
 
         worker_ = std::thread(
-            [this, pluginPath, sampleRate, blockSize]() {
-                workerLoop(pluginPath, sampleRate, blockSize);
+            [this, pluginPath, sampleRate, blockSize, pipeName]() {
+                workerLoop(pluginPath, sampleRate, blockSize, pipeName);
             }
         );
 
@@ -133,8 +134,9 @@ public:
 private:
     void workerLoop(const std::wstring& pluginPath,
                     double sampleRate,
-                    uint32_t blockSize) {
-        BridgeClient client;
+                    uint32_t blockSize,
+                    const std::wstring& pipeName) {
+        BridgeClient client(pipeName);
 
         // Auf die Named Pipe des gestarteten Workers warten.
         // Nur im Hintergrundthread, niemals im Audiothread.

@@ -3,13 +3,16 @@
 #include "../common/protocol.h"
 #include <windows.h>
 #include <string>
+#include <utility>
 #include <cstdint>
 
 namespace heg {
 
 class BridgeClient {
 public:
-    BridgeClient() = default;
+    explicit BridgeClient(
+        std::wstring pipeName = kPipeName)
+        : pipeName_(std::move(pipeName)) {}
     ~BridgeClient() { disconnect(); }
 
     BridgeClient(const BridgeClient&) = delete;
@@ -19,7 +22,7 @@ public:
         if (connected()) return true;
 
         pipe_ = CreateFileW(
-            kPipeName,
+            pipeName_.c_str(),
             GENERIC_READ | GENERIC_WRITE,
             0, nullptr, OPEN_EXISTING,
             FILE_FLAG_OVERLAPPED, nullptr
@@ -94,6 +97,7 @@ public:
     }
 
 private:
+    std::wstring pipeName_;
     HANDLE pipe_ = INVALID_HANDLE_VALUE;
 
     static constexpr DWORD kIoTimeoutMs = 3000;
