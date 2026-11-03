@@ -1,0 +1,80 @@
+#pragma once
+
+#include "worker_process.h"
+#include "async_bridge.h"
+
+#include <string>
+#include <cstdint>
+
+namespace heg {
+
+class ManagedAsyncBridge {
+public:
+    ManagedAsyncBridge() = default;
+    ~ManagedAsyncBridge() { stop(); }
+
+    ManagedAsyncBridge(const ManagedAsyncBridge&) = delete;
+    ManagedAsyncBridge& operator=(const ManagedAsyncBridge&) = delete;
+
+    bool start(const std::wstring& workerExe,
+               const std::wstring& pluginDll,
+               double sampleRate,
+               uint32_t blockSize) {
+        if (started_)
+            return false;
+
+        if (!process_.start(workerExe))
+            return false;
+
+        if (!bridge_.start(pluginDll, sampleRate, blockSize)) {
+            process_.stop();
+            return false;
+        }
+
+        started_ = true;
+        return true;
+    }
+
+    bool ready() const {
+        return started_ &&
+               process_.running() &&
+               bridge_.ready();
+    }
+
+    BridgeError error() const {
+        return bridge_.error();
+    }
+
+    bool submit(const AudioBlock& input) {
+        return ready() && bridge_.submit(input);
+    }
+
+    bool submitMidi(const AudioBlock& input,
+                    const MidiMessage& midi) {
+        return ready() && bridge_.submitMidi(input, midi);
+    }
+
+    bool receive(AudioBlock& output) {
+        return bridge_.receive(output);
+    }
+
+    void stop() {
+        if (!started_)
+            return;
+
+        // Erst die Kommunikation beenden.
+        bridge_.stop();
+
+        // Danach den eigenen Worker-Prozess beenden.
+        process_.stop();
+
+        started_ = false;
+    }
+
+private:
+    WorkerProcess process_;
+    AsyncBridge bridge_;
+    bool started_ = false;
+};
+
+} // namespace heg
