@@ -2,6 +2,7 @@
 
 #include "../common/protocol.h"
 #include <windows.h>
+#include <string>
 #include <cstdint>
 
 namespace heg {
@@ -40,6 +41,21 @@ public:
 
     bool connected() const {
         return pipe_ != INVALID_HANDLE_VALUE;
+    }
+
+    bool loadPlugin(const std::wstring& path) {
+        if (path.empty() || path.size() >= kMaxPathChars)
+            return false;
+
+        const auto bytes = static_cast<uint32_t>(
+            (path.size() + 1) * sizeof(wchar_t)
+        );
+
+        return transfer(Command::Load, path.c_str(), bytes);
+    }
+
+    bool unloadPlugin() {
+        return transfer(Command::Unload, nullptr, 0);
     }
 
     bool configure(double sampleRate, uint32_t blockSize) {
