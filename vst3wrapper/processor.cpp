@@ -39,6 +39,31 @@ tresult PLUGIN_API Processor::canProcessSampleSize(
         : kResultFalse;
 }
 
+tresult PLUGIN_API Processor::setupProcessing(
+    ProcessSetup& setup
+) {
+    if (setup.sampleRate <= 0.0 ||
+        setup.maxSamplesPerBlock <= 0)
+        return kInvalidArgument;
+
+    auto result = AudioEffect::setupProcessing(setup);
+    if (result != kResultOk)
+        return result;
+
+    sampleRate_ = setup.sampleRate;
+    maxBlockSize_ = setup.maxSamplesPerBlock;
+
+    // Noch keine Bridge im VST3-Audioweg:
+    // deshalb momentan keine zusaetzliche Latenz.
+    latencySamples_ = 0;
+
+    return kResultOk;
+}
+
+uint32 PLUGIN_API Processor::getLatencySamples() {
+    return latencySamples_;
+}
+
 tresult PLUGIN_API Processor::process(ProcessData& data) {
     if (data.numSamples < 0)
         return kInvalidArgument;
