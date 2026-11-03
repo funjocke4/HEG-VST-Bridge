@@ -3,6 +3,7 @@
 #include "bridge_client.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -135,8 +136,27 @@ private:
                     uint32_t blockSize) {
         BridgeClient client;
 
-        if (!client.connect()) {
-            error_.store(BridgeError::ConnectionFailed);
+        // Auf die Named Pipe des gestarteten Workers warten.
+        // Nur im Hintergrundthread, niemals im Audiothread.
+        bool connected = false;
+
+        for (int attempt = 0;
+             attempt < 60 && !stopping_.load();
+             ++attempt) {
+
+            if (client.connect()) {
+                connected = true;
+                break;
+            }
+
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(50)
+            );
+        }
+
+        if (!connected) {
+            if (!stopping_.load())
+                error_.store(BridgeError::ConnectionFailed);
             return;
         }
 
