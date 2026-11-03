@@ -1,0 +1,152 @@
+#pragma once
+
+#include "../common/protocol.h"
+#include <windows.h>
+#include <cstdint>
+
+namespace heg {
+
+class BridgeClient {
+public:
+    BridgeClient() = default;
+    ~BridgeClient() { disconnect(); }
+
+    BridgeClient(const BridgeClient&) = delete;
+    BridgeClient& operator=(const BridgeClient&) = delete;
+
+    bool connect() {
+        if (connected()) return true;
+
+        pipe_ = CreateFileW(
+            kPipeName,
+            GENERIC_READ | GENERIC_WRITE,
+            0, nullptr, OPEN_EXISTING,
+            0, nullptr
+        );
+
+        if (!connected()) return false;
+
+        if (!transfer(Command::Hello, nullptr, 0)) {
+            disconnect();
+            return false;
+        }
+        return true;
+    }
+
+    void disconnect() {
+        if (connected()) CloseHandle(pipe_);
+        pipe_ = INVALID_HANDLE_VALUE;
+    }
+
+    bool connected() const {
+        return pipe_ != INVALID_HANDLE_VALUE;
+    }
+
+    bool configure(double sampleRate, uint32_t blockSize) {
+        if (blockSize == 0 || blockSize > kMaxFrames)
+            return false;
+
+        Configure cfg{sampleRate, blockSize};
+
+        return transfer(
+            Command::Configure,
+            &cfg, sizeof(cfg)
+        );
+    }
+
+    bool midi(uint8_t status, uint8_t d1, uint8_t d2) {
+        MidiMessage msg{status, d1, d2, 0};
+
+        return transfer(
+            Command::Midi,
+            &msg, sizeof(msg)
+        );
+    }
+
+    bool process(const AudioBlock& input, AudioBlock& output) {
+        if (input.frames == 0 ||
+            input.frames > kMaxFrames ||
+            input.channels == 0 ||
+            input.channels > kMaxChannels)
+            return false;
+
+        return transfer(
+            Command::Process,
+            &input, sizeof(input),
+            &output
+        );
+    }
+
+private:
+    HANDLE pipe_ = INVALID_HANDLE_VALUE;
+
+    bool writeAll(const void* data, uint32_t size) {
+        const auto* p = static_cast<const uint8_t*>(data);
+
+        while (size > 0) {
+            DWORD written = 0;
+            if (!WriteFile(pipe_, p, size, &written, nullptr)
+                || written == 0)
+                return false;
+
+            p += written;
+            size -= written;
+        }
+        return true;
+    }
+
+    bool readAll(void* data, uint32_t size) {
+        auto* p = static_cast<uint8_t*>(data);
+
+        while (size > 0) {
+            DWORD received = 0;
+            if (!ReadFile(pipe_, p, size, &received, nullptr)
+                || received == 0)
+                return false;
+
+            p += received;
+            size -= received;
+        }
+        return true;
+    }
+
+    bool transfer(Command command,
+                  const void* payload,
+                  uint32_t bytes,
+                  AudioBlock* output = nullptr) {
+        if (!connected()) return false;
+
+        Header header{
+            kMagic, kVersion,
+            static_cast<uint32_t>(command), bytes
+        };
+
+        if (!writeAll(&header, sizeof(header)))
+            return false;
+
+        if (bytes && (!payload || !writeAll(payload, bytes)))
+            return false;
+
+        Reply reply{};
+        if (!readAll(&reply, sizeof(reply)))
+            return false;
+
+        if (reply.magic != kMagic ||
+            reply.version != kVersion ||
+            reply.payloadBytes > sizeof(AudioBlock))
+            return false;
+
+        if (reply.payloadBytes > 0) {
+            if (!output ||
+                reply.payloadBytes != sizeof(AudioBlock))
+                return false;
+
+            if (!readAll(output, sizeof(AudioBlock)))
+                return false;
+        }
+
+        return reply.status == static_cast<uint32_t>(Status::Ok);
+    }
+};
+
+} // namespace heg

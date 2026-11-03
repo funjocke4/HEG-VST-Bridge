@@ -1,0 +1,23 @@
+/build-*/
+.vs/
+*.user
+*.dll
+*.exe
+
+# Build-Verzeichnisse
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+
+# Lokale Tests
+HEG-Audiotest.wav
+
+# Sicherungskopien
+*.bak
+*.original
+
+# Editor-Dateien
+.vscode/
+.idea/
