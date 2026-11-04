@@ -46,6 +46,17 @@ public:
         ready_.store(false);
         error_.store(BridgeError::None);
 
+        // Mailbox beim erneuten Aktivieren zurücksetzen.
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            inputPending_ = false;
+            outputPending_ = false;
+            inFlight_ = false;
+            midiPending_ = false;
+            inputSequence_ = 0;
+            outputSequence_ = 0;
+        }
+
         worker_ = std::thread(
             [this, pluginPath, sampleRate, blockSize, pipeName]() {
                 workerLoop(pluginPath, sampleRate, blockSize, pipeName);

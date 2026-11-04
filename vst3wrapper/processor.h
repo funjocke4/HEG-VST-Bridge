@@ -1,6 +1,8 @@
 #pragma once
 
 #include "public.sdk/source/vst/vstaudioeffect.h"
+#include <string>
+#include "managed_async_bridge.h"
 
 namespace HEG {
 
@@ -22,6 +24,14 @@ public:
         Steinberg::Vst::ProcessSetup& setup
     ) override;
 
+    Steinberg::tresult PLUGIN_API setActive(
+        Steinberg::TBool state
+    ) override;
+
+    Steinberg::tresult PLUGIN_API setProcessing(
+        Steinberg::TBool state
+    ) override;
+
     Steinberg::uint32 PLUGIN_API getLatencySamples()
         override;
 
@@ -36,6 +46,10 @@ private:
     double sampleRate_ = 0.0;
     Steinberg::int32 maxBlockSize_ = 0;
     Steinberg::uint32 latencySamples_ = 0;
+    std::wstring workerPath_;
+    std::wstring pluginPath_;
+    bool bridgeEnabled_ = false;
+    heg::ManagedAsyncBridge bridge_;
 };
 
 }

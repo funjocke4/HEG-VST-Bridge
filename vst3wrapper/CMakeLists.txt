@@ -1,3 +1,9 @@
+# Prevent duplicate VST3 target registration.
+if(TARGET HEGVSTBridge)
+    message(STATUS "[HEG] VST3 target already exists")
+    return()
+endif()
+
 cmake_minimum_required(VERSION 3.25)
 
 project(HEGVSTBridgePlugin VERSION 0.1.0 LANGUAGES CXX)

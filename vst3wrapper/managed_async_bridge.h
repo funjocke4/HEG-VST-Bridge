@@ -2,6 +2,7 @@
 
 #include "worker_process.h"
 #include "async_bridge.h"
+#include "realtime_audio_adapter.h"
 
 #include <string>
 #include <atomic>
@@ -23,6 +24,8 @@ public:
                uint32_t blockSize) {
         if (started_)
             return false;
+
+        adapter_ = RealtimeAudioAdapter{};
 
         static std::atomic<uint32_t> nextId{1};
 
@@ -69,6 +72,14 @@ public:
         return bridge_.receive(output);
     }
 
+    bool render(const AudioBlock& input, AudioBlock& output) {
+        output = {};
+        if (!started_ || !bridge_.ready())
+            return false;
+
+        return adapter_.render(bridge_, input, output);
+    }
+
     // Notabschaltung bei blockiertem Worker.
     // Nicht aus dem Echtzeit-Audiothread aufrufen.
     void abort() {
@@ -101,6 +112,7 @@ public:
 private:
     WorkerProcess process_;
     AsyncBridge bridge_;
+    RealtimeAudioAdapter adapter_;
     bool started_ = false;
 };
 

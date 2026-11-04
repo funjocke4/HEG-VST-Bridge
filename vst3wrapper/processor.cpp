@@ -2,6 +2,20 @@
 #include "ids.h"
 
 #include <algorithm>
+#include <windows.h>
+#include <string>
+
+namespace {
+std::wstring readWindowsPath(const wchar_t* name) {
+    wchar_t buffer[4096]{};
+    DWORD length = GetEnvironmentVariableW(name, buffer, 4096);
+
+    if (length == 0 || length >= 4096)
+        return {};
+
+    return std::wstring(buffer, length);
+}
+}
 
 namespace HEG {
 
@@ -55,8 +69,53 @@ tresult PLUGIN_API Processor::setupProcessing(
 
     // Noch keine Bridge im VST3-Audioweg:
     // deshalb momentan keine zusaetzliche Latenz.
-    latencySamples_ = 0;
+    workerPath_ = readWindowsPath(L"HEG_VST_WORKER");
+    pluginPath_ = readWindowsPath(L"HEG_VST_PLUGIN");
 
+    if (workerPath_.empty() != pluginPath_.empty())
+        return kInvalidArgument;
+
+    bridgeEnabled_ = !workerPath_.empty();
+
+    if (bridgeEnabled_ &&
+        maxBlockSize_ > static_cast<int32>(heg::kMaxFrames))
+        return kResultFalse;
+
+    // Testbetrieb: ein Audioblock Verzögerung.
+    // Nur bei konstanter Blockgröße korrekt.
+    latencySamples_ = bridgeEnabled_
+        ? static_cast<uint32>(maxBlockSize_)
+        : 0;
+
+    return kResultOk;
+}
+
+tresult PLUGIN_API Processor::setActive(TBool state) {
+    if (!state) {
+        bridge_.abort();
+        return AudioEffect::setActive(state);
+    }
+
+    auto result = AudioEffect::setActive(state);
+    if (result != kResultOk)
+        return result;
+
+    if (bridgeEnabled_) {
+        if (!bridge_.start(
+                workerPath_,
+                pluginPath_,
+                sampleRate_,
+                static_cast<uint32_t>(maxBlockSize_))) {
+            AudioEffect::setActive(false);
+            return kResultFalse;
+        }
+    }
+
+    return kResultOk;
+}
+
+tresult PLUGIN_API Processor::setProcessing(TBool /*state*/) {
+    // Keine blockierenden Arbeiten im Audiothread.
     return kResultOk;
 }
 
@@ -86,6 +145,52 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
         input.numChannels != 2 ||
         output.numChannels != 2)
         return kResultFalse;
+
+    if (bridgeEnabled_) {
+        // Vorläufig nur konstante Blockgrößen zulassen.
+        const bool supported =
+            data.numSamples == maxBlockSize_ &&
+            data.numSamples <= static_cast<int32>(heg::kMaxFrames);
+
+        heg::AudioBlock inputBlock{};
+        heg::AudioBlock outputBlock{};
+
+        if (supported) {
+            inputBlock.frames =
+                static_cast<uint32>(data.numSamples);
+            inputBlock.channels = 2;
+        }
+
+        for (int channel = 0; channel < 2; ++channel) {
+            auto* src = input.channelBuffers32[channel];
+            auto* dst = output.channelBuffers32[channel];
+
+            if (!src || !dst)
+                return kResultFalse;
+
+            if (supported) {
+                std::copy_n(src, data.numSamples,
+                            inputBlock.data[channel]);
+            }
+        }
+
+        bool received = supported &&
+            bridge_.render(inputBlock, outputBlock);
+
+        for (int channel = 0; channel < 2; ++channel) {
+            float* dst = output.channelBuffers32[channel];
+
+            if (received) {
+                std::copy_n(outputBlock.data[channel],
+                            data.numSamples, dst);
+            } else {
+                std::fill_n(dst, data.numSamples, 0.0f);
+            }
+        }
+
+        output.silenceFlags = received ? 0 : 3;
+        return kResultOk;
+    }
 
     for (int channel = 0; channel < 2; ++channel) {
         const float* src = input.channelBuffers32[channel];
