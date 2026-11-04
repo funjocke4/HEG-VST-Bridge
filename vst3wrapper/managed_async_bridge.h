@@ -72,6 +72,10 @@ public:
         return bridge_.receive(output);
     }
 
+    bool queueMidi(const MidiMessage& midi) {
+        return started_ && bridge_.enqueueMidi(midi);
+    }
+
     bool render(const AudioBlock& input, AudioBlock& output) {
         output = {};
         if (!started_ || !bridge_.ready())

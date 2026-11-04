@@ -1,5 +1,6 @@
 #include "processor.h"
 #include "ids.h"
+#include "pluginterfaces/vst/ivstevents.h"
 
 #include <algorithm>
 #include <windows.h>
@@ -40,6 +41,12 @@ tresult PLUGIN_API Processor::initialize(FUnknown* context) {
     addAudioOutput(
         STR16("Stereo Output"),
         SpeakerArr::kStereo
+    );
+
+    // MIDI-Eingang mit 16 Kanälen.
+    addEventInput(
+        STR16("MIDI Input"),
+        16
     );
 
     return kResultOk;
@@ -147,6 +154,53 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
         return kResultFalse;
 
     if (bridgeEnabled_) {
+        // MIDI-Ereignisse ohne blockierende Pipe-Aufrufe.
+        if (data.inputEvents) {
+            const int32 count =
+                data.inputEvents->getEventCount();
+
+            for (int32 i = 0; i < count; ++i) {
+                Event event{};
+                if (data.inputEvents->getEvent(i, event)
+                        != kResultOk ||
+                    event.busIndex != 0)
+                    continue;
+
+                const bool on =
+                    event.type == Event::kNoteOnEvent;
+                const bool off =
+                    event.type == Event::kNoteOffEvent;
+
+                if (!on && !off)
+                    continue;
+
+                const int channel = on
+                    ? event.noteOn.channel
+                    : event.noteOff.channel;
+                const int pitch = on
+                    ? event.noteOn.pitch
+                    : event.noteOff.pitch;
+                const float velocity = on
+                    ? event.noteOn.velocity
+                    : event.noteOff.velocity;
+
+                if (channel < 0 || channel > 15 ||
+                    pitch < 0 || pitch > 127)
+                    continue;
+
+                heg::MidiMessage midi{};
+                midi.status = static_cast<uint8_t>(
+                    (on ? 0x90 : 0x80) | channel);
+                midi.data1 = static_cast<uint8_t>(pitch);
+                midi.data2 = static_cast<uint8_t>(
+                    std::clamp(
+                        static_cast<int>(velocity * 127.0f + 0.5f),
+                        0, 127));
+
+                bridge_.queueMidi(midi);
+            }
+        }
+
         // Vorläufig nur konstante Blockgrößen zulassen.
         const bool supported =
             data.numSamples == maxBlockSize_ &&

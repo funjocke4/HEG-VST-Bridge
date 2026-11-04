@@ -3,6 +3,7 @@
 #include "bridge_client.h"
 
 #include <atomic>
+#include <array>
 #include <cstdint>
 #include <chrono>
 #include <condition_variable>
@@ -45,6 +46,9 @@ public:
         stopping_.store(false);
         ready_.store(false);
         error_.store(BridgeError::None);
+        midiWrite_.store(0);
+        midiRead_.store(0);
+        midiOverflow_.store(false);
 
         // Mailbox beim erneuten Aktivieren zurücksetzen.
         {
@@ -86,6 +90,24 @@ public:
 
     BridgeError error() const {
         return error_.load();
+    }
+
+    // SPSC-Warteschlange: Audiothread -> Workerthread.
+    bool enqueueMidi(const MidiMessage& midi) {
+        const auto write =
+            midiWrite_.load(std::memory_order_relaxed);
+        const auto read =
+            midiRead_.load(std::memory_order_acquire);
+
+        if (write - read >= kMidiQueueSize) {
+            midiOverflow_.store(true);
+            return false;
+        }
+
+        midiQueue_[write % kMidiQueueSize] = midi;
+        midiWrite_.store(write + 1,
+                         std::memory_order_release);
+        return true;
     }
 
     // Ein MIDI-Ereignis zusammen mit einem Audioblock.
@@ -158,6 +180,21 @@ public:
     }
 
 private:
+    bool dequeueMidi(MidiMessage& midi) {
+        const auto read =
+            midiRead_.load(std::memory_order_relaxed);
+        const auto write =
+            midiWrite_.load(std::memory_order_acquire);
+
+        if (read == write)
+            return false;
+
+        midi = midiQueue_[read % kMidiQueueSize];
+        midiRead_.store(read + 1,
+                        std::memory_order_release);
+        return true;
+    }
+
     void workerLoop(const std::wstring& pluginPath,
                     double sampleRate,
                     uint32_t blockSize,
@@ -239,6 +276,38 @@ private:
                 break;
             }
 
+            // MIDI vor dem Audioblock abarbeiten.
+            MidiMessage nextMidi{};
+            bool midiOk = true;
+
+            while (dequeueMidi(nextMidi)) {
+                if (!client.midi(
+                        nextMidi.status,
+                        nextMidi.data1,
+                        nextMidi.data2)) {
+                    midiOk = false;
+                    break;
+                }
+            }
+
+            // Notenstopp nach Warteschlangenueberlauf.
+            if (midiOk && midiOverflow_.exchange(false)) {
+                for (uint8_t channel = 0;
+                     channel < 16; ++channel) {
+                    if (!client.midi(0xB0 | channel, 123, 0) ||
+                        !client.midi(0xB0 | channel, 120, 0)) {
+                        midiOk = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!midiOk) {
+                error_.store(BridgeError::ProcessingFailed);
+                ready_.store(false);
+                break;
+            }
+
             if (!client.process(input, output)) {
                 error_.store(BridgeError::ProcessingFailed);
                 ready_.store(false);
@@ -269,6 +338,12 @@ private:
     AudioBlock output_{};
     uint64_t inputSequence_ = 0;
     uint64_t outputSequence_ = 0;
+
+    static constexpr uint32_t kMidiQueueSize = 256;
+    std::array<MidiMessage, kMidiQueueSize> midiQueue_{};
+    std::atomic<uint32_t> midiWrite_{0};
+    std::atomic<uint32_t> midiRead_{0};
+    std::atomic<bool> midiOverflow_{false};
 
     MidiMessage midi_{};
     bool midiPending_ = false;
