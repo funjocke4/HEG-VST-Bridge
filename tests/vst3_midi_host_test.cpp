@@ -189,6 +189,18 @@ int wmain(int argc, wchar_t** argv) {
         }
         initialized = true;
 
+        const auto audioInputs =
+            component->getBusCount(kAudio, kInput);
+        const auto audioOutputs =
+            component->getBusCount(kAudio, kOutput);
+
+        std::printf("Audioeingänge: %d, Audioausgänge: %d\n",
+                    static_cast<int>(audioInputs),
+                    static_cast<int>(audioOutputs));
+
+        if (audioInputs != 0 || audioOutputs != 1)
+            break;
+
         auto midiBuses = component->getBusCount(
             kEvent, kInput);
 
@@ -241,15 +253,9 @@ int wmain(int argc, wchar_t** argv) {
         std::this_thread::sleep_for(
             std::chrono::milliseconds(600));
 
-        float inL[512]{}, inR[512]{};
         float outL[512]{}, outR[512]{};
 
-        float* inputs[2] = {inL, inR};
         float* outputs[2] = {outL, outR};
-
-        AudioBusBuffers inputBus{};
-        inputBus.numChannels = 2;
-        inputBus.channelBuffers32 = inputs;
 
         AudioBusBuffers outputBus{};
         outputBus.numChannels = 2;
@@ -259,9 +265,9 @@ int wmain(int argc, wchar_t** argv) {
         data.processMode = kRealtime;
         data.symbolicSampleSize = kSample32;
         data.numSamples = 512;
-        data.numInputs = 1;
+        data.numInputs = 0;
         data.numOutputs = 1;
-        data.inputs = &inputBus;
+        data.inputs = nullptr;
         data.outputs = &outputBus;
         data.inputEvents = &midiEvents;
 

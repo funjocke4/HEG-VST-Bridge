@@ -33,11 +33,6 @@ tresult PLUGIN_API Processor::initialize(FUnknown* context) {
     if (result != kResultOk)
         return result;
 
-    addAudioInput(
-        STR16("Stereo Input"),
-        SpeakerArr::kStereo
-    );
-
     addAudioOutput(
         STR16("Stereo Output"),
         SpeakerArr::kStereo
@@ -140,17 +135,16 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
     if (data.symbolicSampleSize != kSample32)
         return kResultFalse;
 
-    if (!data.inputs || !data.outputs ||
-        data.numInputs < 1 || data.numOutputs < 1)
+    if (!data.outputs || data.numInputs != 0 ||
+        data.numOutputs < 1)
         return kResultFalse;
 
-    auto& input = data.inputs[0];
     auto& output = data.outputs[0];
 
-    if (!input.channelBuffers32 ||
-        !output.channelBuffers32 ||
-        input.numChannels != 2 ||
-        output.numChannels != 2)
+    if (!output.channelBuffers32 ||
+        output.numChannels != 2 ||
+        !output.channelBuffers32[0] ||
+        !output.channelBuffers32[1])
         return kResultFalse;
 
     if (bridgeEnabled_) {
@@ -215,19 +209,7 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
             inputBlock.channels = 2;
         }
 
-        for (int channel = 0; channel < 2; ++channel) {
-            auto* src = input.channelBuffers32[channel];
-            auto* dst = output.channelBuffers32[channel];
-
-            if (!src || !dst)
-                return kResultFalse;
-
-            if (supported) {
-                std::copy_n(src, data.numSamples,
-                            inputBlock.data[channel]);
-            }
-        }
-
+        // Instrument: Audioeingang bleibt stumm.
         bool received = supported &&
             bridge_.render(inputBlock, outputBlock);
 
@@ -246,19 +228,13 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
         return kResultOk;
     }
 
+    // Ohne konfigurierten Worker Stille ausgeben.
     for (int channel = 0; channel < 2; ++channel) {
-        const float* src = input.channelBuffers32[channel];
-        float* dst = output.channelBuffers32[channel];
-
-        if (!src || !dst)
-            return kResultFalse;
-
-        if (src != dst) {
-            std::copy_n(src, data.numSamples, dst);
-        }
+        std::fill_n(output.channelBuffers32[channel],
+                    data.numSamples, 0.0f);
     }
 
-    output.silenceFlags = input.silenceFlags;
+    output.silenceFlags = 3;
 
     return kResultOk;
 }
