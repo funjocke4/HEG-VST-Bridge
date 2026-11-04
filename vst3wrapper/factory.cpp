@@ -1,6 +1,7 @@
 #include "processor.h"
 #include "controller.h"
 #include "ids.h"
+#include "pluginterfaces/vst/ivstaudioprocessor.h"
 
 #include "public.sdk/source/main/pluginfactory_constexpr.h"
 
@@ -20,7 +21,7 @@ DEF_CLASS(
     kVstAudioEffectClass,
     HEG_PLUGIN_NAME,
     Steinberg::Vst::kDistributable,
-    "Fx",
+    Steinberg::Vst::PlugType::kInstrumentSynth,
     HEG_VERSION,
     kVstVersionString,
     HEG::Processor::createInstance,
