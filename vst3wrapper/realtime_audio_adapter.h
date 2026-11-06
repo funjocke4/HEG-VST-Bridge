@@ -21,10 +21,7 @@ public:
         output.frames = input.frames;
         output.channels = 2;
 
-        // Erwarteter Block: genau ein Aufruf vorher.
-        const uint64_t expected =
-            nextSequence_ > 1 ? nextSequence_ - 1 : 0;
-
+        // Auch leicht verspaetete Audiobloecke annehmen.
         AudioBlock completed{};
         uint64_t receivedSequence = 0;
 
@@ -33,13 +30,15 @@ public:
 
         bool valid =
             received &&
-            expected != 0 &&
-            receivedSequence == expected &&
+            receivedSequence > lastDeliveredSequence_ &&
+            receivedSequence < nextSequence_ &&
             completed.frames == input.frames &&
             completed.channels == 2;
 
-        if (valid)
+        if (valid) {
             output = completed;
+            lastDeliveredSequence_ = receivedSequence;
+        }
 
         // Jeder Aufruf bekommt eine neue Kennnummer.
         // Bei belegter Mailbox wird der Block ausgelassen.
@@ -49,6 +48,7 @@ public:
 
 private:
     uint64_t nextSequence_ = 1;
+    uint64_t lastDeliveredSequence_ = 0;
 };
 
 } // namespace heg

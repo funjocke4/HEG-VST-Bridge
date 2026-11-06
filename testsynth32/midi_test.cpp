@@ -11,6 +11,9 @@ AEffect synth{};
 double phase = 0.0;
 double sampleRate = 44100.0;
 double frequency = 440.0;
+double smoothFrequency = 440.0;
+double smoothGain = 1.0;
+double envelope = 0.0;
 
 bool active = false;
 bool notePlaying = false;
@@ -23,6 +26,7 @@ VstIntPtr __cdecl dispatch(
     switch (opcode) {
         case effOpen:
             phase = 0.0;
+            envelope = 0.0;
             notePlaying = false;
             currentNote = -1;
             return 1;
@@ -106,18 +110,33 @@ void __cdecl process(
     if (!outputs || !outputs[0] || !outputs[1])
         return;
 
-    const double step =
-        6.283185307179586 * frequency / sampleRate;
+    const double glide = 1.0 - std::exp(-1.0 / (sampleRate * 0.010));
+
+    const double attackStep = 1.0 / (sampleRate * 0.005);
+    const double releaseStep = 1.0 / (sampleRate * 0.020);
+
+    const double gainStep = 1.0 - std::exp(-1.0 / (sampleRate * 0.010));
 
     for (int32_t i = 0; i < frames; ++i) {
-        float signal = (active && notePlaying)
-            ? static_cast<float>(0.2 * std::sin(phase))
+        double targetGain = (currentNote >= 40 && currentNote <= 55) ? 2.0 : (currentNote >= 56 ? 1.41421356237 : 1.0);
+        smoothGain += (targetGain - smoothGain) * gainStep;
+        smoothFrequency += (frequency - smoothFrequency) * glide;
+        if (active && notePlaying) {
+            envelope += attackStep;
+            if (envelope > 1.0) envelope = 1.0;
+        } else {
+            envelope -= releaseStep;
+            if (envelope < 0.0) envelope = 0.0;
+        }
+
+        float signal = active
+            ? static_cast<float>(0.2 * envelope * smoothGain * std::sin(phase))
             : 0.0f;
 
         outputs[0][i] = signal;
         outputs[1][i] = signal;
 
-        phase += step;
+        phase += 6.283185307179586 * smoothFrequency / sampleRate;
         if (phase >= 6.283185307179586)
             phase -= 6.283185307179586;
     }

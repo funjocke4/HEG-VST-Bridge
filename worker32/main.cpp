@@ -43,10 +43,14 @@ heg::Status sendMidi(const heg::MidiMessage& midi) {
     VstEventsOne events{};
     events.numEvents = 1;
     events.events[0] = &event;
+#ifdef HEG_TRACE_IPC
     std::fprintf(stderr, "[HEG] MIDI dispatch begin: %02X %u %u\n",
                  midi.status, midi.data1, midi.data2); std::fflush(stderr);
+#endif
     effect->dispatcher(effect, effProcessEvents, 0, 0, &events, 0.0f);
+#ifdef HEG_TRACE_IPC
     std::fprintf(stderr, "[HEG] MIDI dispatch returned\n"); std::fflush(stderr);
+#endif
     return heg::Status::Ok;
 }
 
@@ -179,7 +183,9 @@ int wmain(int argc, wchar_t** argv) {
         if (header.magic != heg::kMagic || header.version != heg::kVersion || header.payloadBytes > sizeof(heg::AudioBlock)) break;
         std::array<uint8_t, sizeof(heg::AudioBlock)> payload{};
         if (header.payloadBytes && !readAll(pipe, payload.data(), header.payloadBytes)) break;
+#ifdef HEG_TRACE_IPC
         std::fprintf(stderr, "[HEG] command: %u received\n", header.command); std::fflush(stderr);
+#endif
         switch (static_cast<heg::Command>(header.command)) {
             case heg::Command::Hello:
                 if (header.payloadBytes == 0) status = heg::Status::Ok;
@@ -216,7 +222,9 @@ int wmain(int argc, wchar_t** argv) {
                 if (header.payloadBytes == 0) { unload(); status = heg::Status::Ok; running = false; }
                 break;
         }
+#ifdef HEG_TRACE_IPC
         std::fprintf(stderr, "[HEG] command: %u status=%u\n", header.command, static_cast<unsigned>(status)); std::fflush(stderr);
+#endif
         heg::Reply reply{heg::kMagic, heg::kVersion, static_cast<uint32_t>(status), outputBytes};
         if (!writeAll(pipe, &reply, sizeof(reply))) break;
         if (outputBytes && !writeAll(pipe, &output, outputBytes)) break;
