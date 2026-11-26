@@ -119,3 +119,7 @@ bash build-linux-to-windows.sh
 ```
 
 Die Pfade im Skript sind relativ zum Projekt. Dies ist ein **ungeprüfter Cross-Build-Pfad**, keine getestete Windows-Freigabe. Die finale Cubase-VST3-Integration fehlt weiterhin.
+
+## Reparaturzweig 0.2.0 (Entwicklung)
+
+Der Test-Synthesizer ist nun im x86-Build enthalten. Der Worker weist nicht-endliche Sampleraten und negative Eingangskanalzahlen zurück, dupliziert Mono-Ausgabe auf Stereo und lehnt entfernte Pipe-Clients ab. Der BridgeClient bietet Load/Unload und prüft Audioantworten. MIDI Note On/Off und CC sowie Offline-WAV-Export sind bereits im Controller vorhanden; die ältere Funktionsliste oben beschreibt 0.1.0. Der Test-Synthesizer erzeugt bislang einen Dauerton und ist kein MIDI-Funktionstest. Echtzeitfähigkeit, VST3-Integration, lokale Pipe-Zugriffskontrolle und Windows-Validierung bleiben offen.

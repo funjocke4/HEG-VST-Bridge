@@ -3,6 +3,7 @@
 #include "../common/protocol.h"
 #include <windows.h>
 #include <cstdint>
+#include <string>
 
 namespace heg {
 
@@ -42,6 +43,13 @@ public:
         return pipe_ != INVALID_HANDLE_VALUE;
     }
 
+    bool load(const std::wstring& path) {
+        if (path.empty() || path.size() >= kMaxPathChars || path.find(L'\0') != std::wstring::npos) return false;
+        return transfer(Command::Load, path.c_str(), static_cast<uint32_t>((path.size()+1)*sizeof(wchar_t)));
+    }
+
+    bool unload() { return transfer(Command::Unload, nullptr, 0); }
+
     bool configure(double sampleRate, uint32_t blockSize) {
         if (blockSize == 0 || blockSize > kMaxFrames)
             return false;
@@ -66,15 +74,12 @@ public:
     bool process(const AudioBlock& input, AudioBlock& output) {
         if (input.frames == 0 ||
             input.frames > kMaxFrames ||
-            input.channels == 0 ||
-            input.channels > kMaxChannels)
+            input.channels != kMaxChannels)
             return false;
 
-        return transfer(
-            Command::Process,
-            &input, sizeof(input),
-            &output
-        );
+        output = {};
+        return transfer(Command::Process, &input, sizeof(input), &output)
+            && output.frames == input.frames && output.channels == kMaxChannels;
     }
 
 private:
