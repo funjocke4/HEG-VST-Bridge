@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -96,7 +98,7 @@ heg::Status loadPlugin(const std::wstring& path) {
 }
 heg::Status configure(const heg::Configure& cfg) {
     if (!effect) return heg::Status::NotLoaded;
-    if (cfg.sampleRate < 8000 || cfg.sampleRate > 384000 || cfg.maxBlockSize == 0 || cfg.maxBlockSize > heg::kMaxFrames) return heg::Status::BadRequest;
+    if (!std::isfinite(cfg.sampleRate) || cfg.sampleRate < 8000 || cfg.sampleRate > 384000 || cfg.maxBlockSize == 0 || cfg.maxBlockSize > heg::kMaxFrames) return heg::Status::BadRequest;
     if (mainsOn) { effect->dispatcher(effect, effMainsChanged, 0, 0, nullptr, 0); mainsOn = false; }
     sampleRate = cfg.sampleRate;
     blockSize = static_cast<int32_t>(cfg.maxBlockSize);
@@ -113,7 +115,7 @@ heg::Status configure(const heg::Configure& cfg) {
 heg::Status process(const heg::AudioBlock& input, heg::AudioBlock& output) {
     if (!effect || !mainsOn) return heg::Status::NotLoaded;
     if (!input.frames || input.frames > heg::kMaxFrames || input.frames > static_cast<uint32_t>(blockSize) || input.channels != 2) return heg::Status::BadRequest;
-    if (effect->numInputs > 2 || effect->numOutputs > 2 || effect->numOutputs < 1) return heg::Status::Unsupported;
+    if (effect->numInputs < 0 || effect->numInputs > 2 || effect->numOutputs > 2 || effect->numOutputs < 1) return heg::Status::Unsupported;
     output = {};
     output.frames = input.frames;
     output.channels = 2;
@@ -125,7 +127,7 @@ heg::Status process(const heg::AudioBlock& input, heg::AudioBlock& output) {
     std::fprintf(stderr, "[HEG] process: processReplacing begin, frames=%u, inputs=%d, outputs=%d\n", input.frames, effect->numInputs, effect->numOutputs); std::fflush(stderr);
     effect->processReplacing(effect, inputPtrs, outputPtrs, static_cast<int32_t>(input.frames));
     std::fprintf(stderr, "[HEG] process: processReplacing returned\n"); std::fflush(stderr);
-    for (uint32_t c = 0; c < 2; ++c) std::copy_n(out[c].data(), input.frames, output.data[c]);
+    for (uint32_t c = 0; c < 2; ++c) std::copy_n(out[effect->numOutputs == 1 ? 0 : c].data(), input.frames, output.data[c]);
     std::fprintf(stderr, "[HEG] process: output copied\n"); std::fflush(stderr);
     return heg::Status::Ok;
 }
@@ -134,7 +136,7 @@ heg::Status process(const heg::AudioBlock& input, heg::AudioBlock& output) {
 int wmain() {
     std::wcout << L"HEG Worker32: " << heg::kPipeName << L"\n"; std::wcout.flush();
     HANDLE pipe = CreateNamedPipeW(heg::kPipeName, PIPE_ACCESS_DUPLEX,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1,
         65536, 65536, 0, nullptr);
     if (pipe == INVALID_HANDLE_VALUE) { std::wcerr << L"CreateNamedPipe failed: " << GetLastError() << L"\n"; return 2; }
     bool connected = ConnectNamedPipe(pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED;
@@ -157,8 +159,9 @@ int wmain() {
             case heg::Command::Load:
                 if (header.payloadBytes >= sizeof(wchar_t) && header.payloadBytes % sizeof(wchar_t) == 0 &&
                     header.payloadBytes <= heg::kMaxPathChars * sizeof(wchar_t)) {
-                    std::wstring path(reinterpret_cast<const wchar_t*>(payload.data()), header.payloadBytes / sizeof(wchar_t));
-                    if (!path.empty() && path.back() == L'\0') { path.pop_back(); status = loadPlugin(path); }
+                    std::wstring path(header.payloadBytes / sizeof(wchar_t), L'\0');
+                    std::memcpy(path.data(), payload.data(), header.payloadBytes);
+                    if (!path.empty() && path.back() == L'\0') { path.pop_back(); if (!path.empty() && path.find(L'\0') == std::wstring::npos) status = loadPlugin(path); }
                 }
                 break;
             case heg::Command::Configure:
